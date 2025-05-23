@@ -16,4 +16,5 @@ Clone the Matplotlib repository and implement a new functionality that enables s
      - Positions
    - Provides options for different easing functions (linear, ease-in, ease-out, etc.)
 2. Implement a complementary function `transition_plot_state(fig_from, fig_to, duration=1.0, fps=30)` that can transition between two completely different figure states
+   - (didn't have time to write this one during the session, but it'd essentially amount to scraping the data from the second figure and adapting smooth_transition to optionally take an input figure rather than input data, then using that for the starting plot instead of generating one).
 3. Create a demo showcasing various transition types
