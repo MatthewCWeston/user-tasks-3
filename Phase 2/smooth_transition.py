@@ -33,11 +33,25 @@ def to_size_array(size, N, default=40):
         return arr
     raise ValueError("from_size and to_size must be broadcastable to (N,)")
 
+def get_easing_func(easing):
+    """Return an easing function mapping t in [0,1] to eased t."""
+    easing = (easing or "linear").lower()
+    if easing == "linear":
+        return lambda t: t
+    elif easing == "ease-in":
+        return lambda t: t ** 2
+    elif easing == "ease-out":
+        return lambda t: 1 - (1 - t) ** 2
+    elif easing == "ease-in-out":
+        return lambda t: 0.5 * (2 * t) ** 2 if t < 0.5 else 1 - 0.5 * (2 * (1 - t)) ** 2
+    else:
+        raise ValueError(f"Unknown easing: {easing}")
+
 def smooth_transition(from_data, to_data, duration=1.0, fps=30, **kwargs):
     """
     Animates a smooth transition between two sets of (N, 2) datapoints,
-    optionally including color and size interpolation.
-    
+    optionally including color and size interpolation and easing.
+
     Args:
         from_data (np.ndarray): Starting data, shape (N, 2)
         to_data (np.ndarray): Ending data, shape (N, 2)
@@ -48,12 +62,14 @@ def smooth_transition(from_data, to_data, duration=1.0, fps=30, **kwargs):
         to_color: Ending color(s) (matplotlib color or (N, 3)/(N, 4) array)
         from_size: Starting sizes (scalar or (N,) array)
         to_size: Ending sizes (scalar or (N,) array)
+        easing: Easing function ("linear", "ease-in", "ease-out", "ease-in-out")
         **kwargs: Additional keyword arguments passed to matplotlib functions
     """
     assert from_data.shape == to_data.shape, "from_data and to_data must have the same shape"
     assert from_data.shape[1] == 2, "Data must be of shape (N, 2)"
     mode = kwargs.get("mode", SCATTER)
     n_frames = int(duration * fps)
+    title = kwargs.pop("title", None)
     # Handle color interpolation
     from_color = kwargs.pop("from_color", None)
     to_color = kwargs.pop("to_color", None)
@@ -62,6 +78,9 @@ def smooth_transition(from_data, to_data, duration=1.0, fps=30, **kwargs):
     from_size = kwargs.pop("from_size", None)
     to_size = kwargs.pop("to_size", None)
     size_interp = from_size is not None and to_size is not None
+    # Handle easing
+    easing = kwargs.pop("easing", "linear")
+    easing_fn = get_easing_func(easing)
     N = from_data.shape[0]
     if color_interp:
         from_color_arr = to_rgba_array(from_color, N)
@@ -71,14 +90,13 @@ def smooth_transition(from_data, to_data, duration=1.0, fps=30, **kwargs):
         to_size_arr = to_size_array(to_size, N)
     fig, ax = plt.subplots()
     # Prepare plot objects for each mode
-    plot_kwargs = {k: v for k, v in kwargs.items() if k not in ["mode", "from_color", "to_color", "from_size", "to_size"]}
+    plot_kwargs = {k: v for k, v in kwargs.items() if k not in ["mode", "from_color", "to_color", "from_size", "to_size", "easing"]}
     if mode == SCATTER:
         scatter_color = from_color_arr if color_interp else plot_kwargs.pop("c", None)
         scatter_size = from_size_arr if size_interp else plot_kwargs.pop("s", None)
         plot_obj = ax.scatter(from_data[:, 0], from_data[:, 1], c=scatter_color, s=scatter_size, **plot_kwargs)
     elif mode == BAR:
         width = from_size_arr if size_interp else plot_kwargs.pop("width", 0.8)
-        # If width is scalar, make it array
         if isinstance(width, (int, float)):
             width_arr = np.full((N,), width)
         else:
@@ -97,12 +115,13 @@ def smooth_transition(from_data, to_data, duration=1.0, fps=30, **kwargs):
     pad_y = (all_y.max() - all_y.min()) * 0.08 or 1
     ax.set_xlim(all_x.min() - pad_x, all_x.max() + pad_x)
     ax.set_ylim(all_y.min() - pad_y, all_y.max() + pad_y)
-    ax.set_title(f"Smooth transition: {mode}")
-    # Tweening function (linear interpolation)
+    ax.set_title(title)
+    # Tweening function (eased interpolation)
     def interpolate(start, end, t):
         return start + (end - start) * t
     def update(frame):
-        t = frame / n_frames
+        raw_t = frame / n_frames
+        t = easing_fn(raw_t)
         cur_data = interpolate(from_data, to_data, t)
         if color_interp:
             cur_color = interpolate(from_color_arr, to_color_arr, t)
@@ -115,7 +134,6 @@ def smooth_transition(from_data, to_data, duration=1.0, fps=30, **kwargs):
             if size_interp:
                 plot_obj.set_sizes(cur_size)
         elif mode == BAR:
-            # width is animated
             if size_interp:
                 cur_width = cur_size
             else:
